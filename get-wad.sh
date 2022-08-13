@@ -36,6 +36,7 @@ search() {
 	then
 		initial
 	else
+$FZF_PREVIEW_COLUMNS
 		while IFS= read -r type; do
 			local response=$(curl -N -s $api_url'?action=search' \
 				--data-urlencode "query=$query" \
@@ -57,29 +58,28 @@ search() {
 				| cut -d '|' -f 2- \
 				| rev | cut -c2- | rev \
 				| xargs -n1 -I {} bash -c 'echo "{}" | awk "$1" | grep -m 1 "$0"' "^$type:" 'BEGIN {IGNORECASE=1; RS="<br>"} { print $0 }')
-
-			paste -d '|' <( printf "$remote_filepaths" ) <( printf "$best_matches" )
+			paste -d '|' <( printf "$remote_filepaths" ) <( printf "$best_matches" ) \
+				| awk '{split($0,a,"|"); printf "%-50s%-100s\n", a[1], a[2]}'
 		done < <(printf "title\nfilename\nauthor\n")
 	fi
 }
 export -f search
 
 preview() {
-	local path=$(echo "$1" | sed -e 's/^["'\'']//' -e 's/["'\'']$//' | cut -d '|' -f 1) # remove quotes from fzf and truncate match
+	local path=$(echo "$1" | sed -e 's/^["'\'']//' -e 's/["'\'']$//' | cut -d ' ' -f 1) # remove quotes from fzf and truncate match
 	echo "[$path]"
 
 	response=$(curl -N -s "$api_url?action=get" \
 		--data-urlencode "file=$path" \
 		--data 'out=json' \
 	)
-	[ $(echo $response | jq 'has("content")') = true ] || return
 
-	echo $response | jq '.content.textfile' | sed -e 's/^["'\'']//' -e 's/["'\'']$//' -e 's/\\\"/\"/g' | xargs --null -I {} printf "{}"
+	echo "$response" | jq '.content.textfile' | sed -e 's/^["'\'']//' -e 's/["'\'']$//' -e 's/\\\"/\"/g' -e 's/\\n/\n/g'
 }
 export -f preview
 
 download() {
-	local path=$(echo "$1" | sed -e 's/^["'\'']//' -e 's/["'\'']$//' | cut -d '|' -f 1) # remove quotes from fzf and truncate match
+	local path=$(echo "$1" | sed -e 's/^["'\'']//' -e 's/["'\'']$//' | cut -d ' ' -f 1) # remove quotes from fzf and truncate match
 	local file="$(basename $path)"
 	# add a hash at the end to handle the same filename in different dirs
 	local extract_dir="${file%.*}-$(echo $path | sha1sum | head -c 5)"
@@ -106,4 +106,4 @@ download() {
 export -f download
 
 # have a slight delay to allow for the next keystroke
-FZF_DEFAULT_COMMAND="search '$@'" fzf --bind 'change:reload(sleep 2e-1; search "{q}")' --bind 'enter:execute(download "{}")+abort' --preview 'preview {}' --ansi --query="$*"
+FZF_DEFAULT_COMMAND="search '$@'" fzf --preview-window='top' --bind 'change:reload(sleep 2e-1; search "{q}")' --bind 'enter:execute(download "{}")+abort' --preview 'preview {}' --ansi --query="$*"
